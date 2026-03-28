@@ -1,0 +1,7 @@
+project_id = "kipgpugjgooggnvbhrok"
+
+[functions.mqtt-webhook]
+verify_jwt = false
+
+[functions.driver-crud]
+verify_jwt = false
