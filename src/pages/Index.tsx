@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from "react";
-import { Link, useNavigate, Navigate } from "react-router-dom";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useRealtimeData, type VehicleData, generateSensorData } from "@/lib/mock-data";
 import { useMqttTelemetry } from "@/hooks/useMqttTelemetry";
 import { SensorCard } from "@/components/SensorCard";
@@ -10,42 +10,37 @@ import { AlertChart } from "@/components/AlertChart";
 import { MQTTStatus } from "@/components/MQTTStatus";
 import { RealtimeTelemetryCard } from "@/components/RealtimeTelemetryCard";
 import { DriverMessagePanel } from "@/components/DriverMessagePanel";
-import { Shield, AlertTriangle, Truck, Activity, Calculator, ArrowLeft, Map, Users } from "lucide-react";
+import { DriverRoster } from "@/components/DriverRoster";
+import { Shield, AlertTriangle, Truck, Activity, Calculator, LogOut, Map } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
-
-interface SavedDriver {
-  id: string;
-  display_name: string;
-  vehicle_name: string | null;
-  vehicle_plate: string | null;
-  vehicle_type: string | null;
-}
+import { adminSession, driverApi, type DriverProfile } from "@/lib/driver-api";
 
 const Index = () => {
   const { fleet, history } = useRealtimeData(2500);
-  const { liveVehicles, isConnected, error } = useMqttTelemetry();
+  const { liveVehicles } = useMqttTelemetry();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const handleSelect = (v: VehicleData) => setSelectedId(v.id);
   const navigate = useNavigate();
-  const prevFleetRef = useRef<VehicleData[]>([]);
-  const [savedDrivers, setSavedDrivers] = useState<SavedDriver[]>([]);
-  // Fetch saved drivers from DB
+  const [savedDrivers, setSavedDrivers] = useState<DriverProfile[]>([]);
+
+  const fetchDrivers = useCallback(async () => {
+    try {
+      setSavedDrivers(await driverApi.list());
+    } catch {
+      // transient; next poll retries
+    }
+  }, []);
+
   useEffect(() => {
-    const fetchDrivers = async () => {
-      const { data } = await supabase
-        .from("drivers")
-        .select("id, display_name, vehicle_name, vehicle_plate, vehicle_type")
-        .order("created_at", { ascending: false });
-      if (data) setSavedDrivers(data);
-    };
     fetchDrivers();
     const interval = setInterval(fetchDrivers, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [fetchDrivers]);
 
-
-
+  const handleLogout = () => {
+    adminSession.clear();
+    navigate("/", { replace: true });
+  };
 
   // Merge saved drivers into fleet
   const mergedFleet = useMemo(() => {
@@ -56,6 +51,7 @@ const Index = () => {
       type: (d.vehicle_type as VehicleData["type"]) || "truck",
       driver: d.display_name,
       location: fleet[i % Math.max(fleet.length, 1)]?.location || "Mumbai",
+      coordinates: fleet[i % Math.max(fleet.length, 1)]?.coordinates ?? [19.07, 72.88],
       sensor: generateSensorData(),
     }));
     const allVehicles = [...liveVehicles];
@@ -81,46 +77,41 @@ const Index = () => {
   const critCount = mergedFleet.filter((v) => v.sensor.status === "critical").length;
   const avgSpeed = mergedFleet.length > 0 ? (mergedFleet.reduce((s, v) => s + v.sensor.speed, 0) / mergedFleet.length).toFixed(1) : "0";
 
-  // Guard: must have verified admin password
-  if (sessionStorage.getItem("admin_verified") !== "true") {
-    return <Navigate to="/" replace />;
-  }
-
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border px-6 py-4">
-        <div className="flex items-center justify-between max-w-[1600px] mx-auto">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md px-4 sm:px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 max-w-[1600px] mx-auto">
           <div className="flex items-center gap-3">
-            <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-lg bg-primary/20 flex items-center justify-center glow-primary">
               <Shield className="h-5 w-5 text-primary" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-foreground tracking-tight">TerraMass<span className="text-primary">.GOV</span></h1>
-              <p className="text-xs text-muted-foreground">Terrain-Mass-Grip Velocity Governance</p>
+              <p className="text-xs text-muted-foreground hidden sm:block">Fleet Command</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             <MQTTStatus />
-            <span className="text-xs text-muted-foreground font-mono">{mergedFleet.length} vehicles online</span>
-            <Link to="/map" className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors">
+            <span className="hidden md:inline text-xs text-muted-foreground font-mono">{mergedFleet.length} vehicles online</span>
+            <Link to="/map" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10 transition-colors">
               <Map className="h-3.5 w-3.5" />
               Fleet Map
             </Link>
-            <Link to="/calculator" className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors">
+            <Link to="/calculator" className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-primary hover:bg-primary/10 transition-colors">
               <Calculator className="h-3.5 w-3.5" />
               Calculator
             </Link>
-            <Button size="sm" variant="ghost" onClick={() => navigate("/")} className="text-xs text-muted-foreground">
-              <ArrowLeft className="h-3.5 w-3.5 mr-1" />
-              Back
+            <Button size="sm" variant="ghost" onClick={handleLogout} className="text-xs text-muted-foreground">
+              <LogOut className="h-3.5 w-3.5 mr-1" />
+              Sign out
             </Button>
           </div>
         </div>
       </header>
 
       {/* Main Content */}
-      <main className="max-w-[1600px] mx-auto p-6 space-y-6">
+      <main className="max-w-[1600px] mx-auto p-4 sm:p-6 space-y-6 fade-up">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="card-glass rounded-lg p-4">
@@ -171,34 +162,10 @@ const Index = () => {
           <AlertChart data={history} />
         </div>
 
-        {/* Saved Drivers + Messaging */}
+        {/* Drivers + Messaging */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="card-glass rounded-lg overflow-hidden">
-            <div className="p-4 border-b border-border flex items-center gap-2">
-              <Users className="h-4 w-4 text-primary" />
-              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                Saved Drivers ({savedDrivers.length})
-              </h3>
-            </div>
-            <div className="p-2 max-h-52 overflow-y-auto space-y-1">
-              {savedDrivers.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">No drivers saved yet</p>
-              ) : (
-                savedDrivers.map((d) => (
-                  <div key={d.id} className="flex items-center gap-3 p-2 rounded hover:bg-accent/30 transition-colors">
-                    <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                      <Truck className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-foreground truncate">{d.display_name}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">{d.vehicle_name} · {d.vehicle_plate}</p>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-          <DriverMessagePanel />
+          <DriverRoster drivers={savedDrivers} onChange={fetchDrivers} />
+          <DriverMessagePanel drivers={savedDrivers} />
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">

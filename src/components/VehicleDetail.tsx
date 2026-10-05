@@ -1,6 +1,7 @@
 import type { VehicleData } from "@/lib/mock-data";
 import { SensorCard } from "./SensorCard";
 import { X, MapPin } from "lucide-react";
+import { Truck3D } from "./three/Truck3D";
 
 interface VehicleDetailProps {
   vehicle: VehicleData;
@@ -26,6 +27,16 @@ export const VehicleDetail = ({ vehicle, onClose }: VehicleDetailProps) => {
           <X className="h-4 w-4 text-muted-foreground" />
         </button>
       </div>
+
+      <Truck3D
+        className="h-[220px] -mx-5 mb-5 border-y border-border bg-gradient-to-b from-primary/5 to-transparent"
+        speed={sensor.speed}
+        slope={sensor.slope}
+        grip={sensor.gripCoefficient}
+        load={sensor.load}
+        brakingDistance={sensor.brakingDistance}
+        status={sensor.status}
+      />
 
       {/* Speed gauge bar */}
       <div className="mb-5">

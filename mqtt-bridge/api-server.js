@@ -3,11 +3,18 @@ const cors = require('cors');
 const { getLatestTelemetry } = require('./local-storage');
 
 const app = express();
-const PORT = 3001;
+const PORT = Number(process.env.API_PORT) || 3001;
+// Bind to loopback by default so the API isn't exposed to the whole LAN.
+const HOST = process.env.API_HOST || "127.0.0.1";
+const ALLOWED_ORIGINS = (process.env.API_ALLOWED_ORIGINS || "http://localhost:8080,http://localhost:5173")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.disable("x-powered-by");
+app.use(cors({ origin: ALLOWED_ORIGINS, methods: ["GET"] }));
+app.use(express.json({ limit: "10kb" }));
 
 // API endpoint to get latest telemetry data
 app.get('/api/telemetry', (req, res) => {
@@ -49,7 +56,7 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 API Server running on http://localhost:${PORT}`);
-  console.log(`📊 Telemetry endpoint: http://localhost:${PORT}/api/telemetry`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 API Server running on http://${HOST}:${PORT}`);
+  console.log(`📊 Telemetry endpoint: http://${HOST}:${PORT}/api/telemetry`);
 });

@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Secrets & runtime data
+.env
+.env.*
+!.env.example
+mqtt-bridge/telemetry-data.json
+supabase/.temp
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

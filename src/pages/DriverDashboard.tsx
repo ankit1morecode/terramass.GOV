@@ -1,55 +1,61 @@
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { useRealtimeData, type VehicleData, type SensorData } from "@/lib/mock-data";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useSingleDriverTelemetry } from "@/hooks/useSingleDriverTelemetry";
 import { SpeedometerGauge } from "@/components/SpeedometerGauge";
 import FleetMap from "@/components/FleetMap";
-import { supabase } from "@/integrations/supabase/client";
 import {
   Gauge, Mountain, Grip, Weight, ArrowDownCircle, RulerIcon,
-  ShieldCheck, Truck, ArrowLeft, MessageSquare, Wifi, WifiOff,
+  ShieldCheck, Truck, LogOut, MessageSquare, Wifi, WifiOff, CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { driverApi, driverSession, type DriverMessage } from "@/lib/driver-api";
+import { Truck3D } from "@/components/three/Truck3D";
+import type { SpeedStatus } from "@/lib/physics";
 
-const getDriverDetails = () => {
-  try {
-    const stored = localStorage.getItem("driver_details");
-    if (stored) return JSON.parse(stored);
-  } catch {}
-  return { id: null, display_name: "Driver", vehicle_name: "My Vehicle", vehicle_plate: "XX-00-XX-0000", vehicle_type: "truck" };
+/** Bridge telemetry sends "SAFE"/"WARNING"/…; the UI expects lowercase. */
+const normalizeStatus = (s: string): SpeedStatus => {
+  const v = s?.toLowerCase();
+  return v === "warning" || v === "critical" ? v : "safe";
 };
 
 const DriverDashboard = () => {
   const navigate = useNavigate();
-  const driverDetails = getDriverDetails();
-  const { vehicle, isConnected, error } = useSingleDriverTelemetry(driverDetails.vehicle_name || "TRAILER_1");
-  const [messages, setMessages] = useState<{ id: string; message: string; created_at: string; read: boolean }[]>([]);
-
-  // Debug: Log driver details and vehicle data
-  useEffect(() => {
-    console.log('DriverDashboard - driverDetails:', driverDetails);
-    console.log('DriverDashboard - vehicle:', vehicle);
-    console.log('DriverDashboard - isConnected:', isConnected);
-    console.log('DriverDashboard - error:', error);
-  }, [driverDetails, vehicle, isConnected, error]);
+  const [driverDetails] = useState(() => driverSession.driver());
+  const { vehicle, isConnected, error } = useSingleDriverTelemetry(driverDetails?.vehicle_name || "TRAILER_1");
+  const [messages, setMessages] = useState<DriverMessage[]>([]);
 
   // Fetch messages for this driver
   useEffect(() => {
-    if (!driverDetails.id) return;
+    if (!driverDetails) return;
     const fetchMessages = async () => {
-      const { data } = await supabase
-        .from("driver_messages")
-        .select("id, message, created_at, read")
-        .eq("driver_id", driverDetails.id)
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (data) setMessages(data);
+      try {
+        setMessages(await driverApi.messages(driverDetails.id));
+      } catch (err) {
+        // Session expired or revoked → back to login
+        if (err instanceof Error && err.message === "Unauthorized") navigate("/driver", { replace: true });
+      }
     };
     fetchMessages();
     const interval = setInterval(fetchMessages, 5000);
     return () => clearInterval(interval);
-  }, [driverDetails.id]);
+  }, [driverDetails, navigate]);
+
+  const unreadCount = messages.filter((m) => !m.read).length;
+
+  const markAllRead = async () => {
+    setMessages((prev) => prev.map((m) => ({ ...m, read: true })));
+    try {
+      await driverApi.markRead();
+    } catch {
+      // next poll restores true state
+    }
+  };
+
+  const handleLogout = () => {
+    driverSession.clear();
+    navigate("/driver", { replace: true });
+  };
 
   // Safety score
   const safetyScore = useMemo(() => {
@@ -59,6 +65,8 @@ const DriverDashboard = () => {
     if (ratio > 0.8) return Math.round(85 - (ratio - 0.8) * 100);
     return Math.round(95 + Math.random() * 5);
   }, [vehicle]);
+
+  if (!driverDetails) return <Navigate to="/driver" replace />;
 
   if (!vehicle) {
     return (
@@ -93,12 +101,16 @@ const DriverDashboard = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="border-b border-border px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur-md px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Truck className="h-5 w-5 text-primary" />
+          <div className="h-8 w-8 rounded-lg bg-primary/15 flex items-center justify-center">
+            <Truck className="h-4 w-4 text-primary" />
+          </div>
           <div>
-            <h1 className="text-sm font-bold text-foreground">{vehicle.name}</h1>
-            <p className="text-[10px] text-muted-foreground">{vehicle.plate} · {vehicle.driver}</p>
+            <h1 className="text-sm font-bold text-foreground">{driverDetails.vehicle_name || vehicle.name}</h1>
+            <p className="text-[10px] text-muted-foreground font-mono">
+              {driverDetails.vehicle_plate || vehicle.plate} · {driverDetails.display_name}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -106,8 +118,8 @@ const DriverDashboard = () => {
             {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
             {isConnected ? 'LIVE DATA' : 'OFFLINE'}
           </div>
-          <Button variant="ghost" size="sm" onClick={() => navigate("/driver")}>
-            <ArrowLeft className="h-4 w-4 mr-1" />
+          <Button variant="ghost" size="sm" onClick={handleLogout}>
+            <LogOut className="h-4 w-4 mr-1" />
             <span className="text-xs">Logout</span>
           </Button>
         </div>
@@ -160,6 +172,25 @@ const DriverDashboard = () => {
           ))}
         </div>
 
+        {/* Live 3D view */}
+        <div className="card-glass rounded-lg overflow-hidden">
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Live 3D View</h3>
+            <span className="text-[10px] font-mono text-muted-foreground">
+              slope {sensor.slope.toFixed(1)}° · µ {sensor.gripCoefficient.toFixed(2)} · {(sensor.load / 1000).toFixed(1)} t
+            </span>
+          </div>
+          <Truck3D
+            className="h-[280px] sm:h-[360px]"
+            speed={sensor.speed}
+            slope={sensor.slope}
+            grip={sensor.gripCoefficient}
+            load={sensor.load}
+            brakingDistance={sensor.brakingDistance}
+            status={normalizeStatus(sensor.status)}
+          />
+        </div>
+
         {/* Braking & Road Warnings */}
         <div className="card-glass rounded-lg p-4 border-l-4 border-warning h-[120px] overflow-hidden">
           <h3 className="text-sm font-bold text-warning uppercase mb-2">⚠ Road Warnings</h3>
@@ -195,10 +226,16 @@ const DriverDashboard = () => {
               <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
                 Messages from Admin
               </h3>
-              {messages.filter((m) => !m.read).length > 0 && (
-                <span className="ml-auto bg-destructive text-destructive-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                  {messages.filter((m) => !m.read).length}
-                </span>
+              {unreadCount > 0 && (
+                <>
+                  <span className="bg-destructive text-destructive-foreground text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {unreadCount}
+                  </span>
+                  <Button variant="ghost" size="sm" className="ml-auto h-7 text-xs" onClick={markAllRead}>
+                    <CheckCheck className="h-3.5 w-3.5 mr-1" />
+                    Mark read
+                  </Button>
+                </>
               )}
             </div>
             <ScrollArea className="h-52">
@@ -213,7 +250,7 @@ const DriverDashboard = () => {
                         msg.read ? "bg-secondary/30" : "bg-primary/10 border border-primary/30"
                       }`}
                     >
-                      <p className="text-foreground">{msg.message}</p>
+                      <p className="text-foreground break-words">{msg.message}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">
                         {new Date(msg.created_at).toLocaleString()}
                       </p>

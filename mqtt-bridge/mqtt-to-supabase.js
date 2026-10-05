@@ -2,15 +2,28 @@ const mqtt = require("mqtt");
 const { createClient } = require("@supabase/supabase-js");
 const { saveTelemetry, getLatestTelemetry } = require("./local-storage");
 
-// Configuration
-const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL || "mqtt://10.141.141.72";
-const SUPABASE_URL = process.env.SUPABASE_URL || "https://ipnykovvneveustujtfy.supabase.co";
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlwbnlrb3Z2bmV2ZXVzdHVqdGZ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM0MjAxOTYsImV4cCI6MjA4ODk5NjE5Nn0.7Kfmxq-mizXW532ShgmBNIW4n-FWgbaW-jXE2XHZLHg";
+// Configuration — all from environment, no hardcoded credentials.
+const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
+const MQTT_USERNAME = process.env.MQTT_USERNAME;
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const MQTT_WEBHOOK_SECRET = process.env.MQTT_WEBHOOK_SECRET;
+
+const missing = ["MQTT_BROKER_URL", "SUPABASE_URL", "SUPABASE_ANON_KEY", "MQTT_WEBHOOK_SECRET"].filter(
+  (k) => !process.env[k]
+);
+if (missing.length) {
+  console.error(`Missing required environment variables: ${missing.join(", ")} (see .env.example)`);
+  process.exit(1);
+}
 
 const client = mqtt.connect(MQTT_BROKER_URL, {
   reconnectPeriod: 5000,
   connectTimeout: 30000,
-  clean: true
+  clean: true,
+  username: MQTT_USERNAME,
+  password: MQTT_PASSWORD,
 });
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -19,6 +32,16 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     persistSession: false
   }
 });
+
+// Writes go through the authenticated mqtt-webhook edge function; the anon key alone
+// has no write access to vehicle_telemetry.
+async function pushTelemetry(record) {
+  const { error } = await supabase.functions.invoke("mqtt-webhook", {
+    body: record,
+    headers: { "x-webhook-secret": MQTT_WEBHOOK_SECRET },
+  });
+  return error;
+}
 
 let telemetry = {
   vehicle_id: "TRAILER_1",
@@ -96,12 +119,10 @@ client.on("message", async (topic, message) => {
 
     // Try to save to Supabase first
     try {
-      const { data, error } = await supabase
-        .from("vehicle_telemetry")
-        .upsert(telemetry, { onConflict: 'vehicle_id' });
+      const error = await pushTelemetry(telemetry);
 
       if (error) {
-        console.error("Supabase upsert error:", error.message);
+        console.error("Supabase webhook error:", error.message);
         // Fallback to local storage
         saveTelemetry(telemetry);
       } else {

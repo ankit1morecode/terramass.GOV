@@ -126,4 +126,75 @@
     0%, 100% { opacity: 1; }
     50% { opacity: 0.4; }
   }
+
+  /* ---------- 3D scene background ---------- */
+  .scene-aurora {
+    background:
+      radial-gradient(60% 50% at 20% 10%, hsl(var(--primary) / 0.18), transparent 70%),
+      radial-gradient(50% 40% at 85% 20%, hsl(var(--info) / 0.16), transparent 70%),
+      radial-gradient(40% 35% at 50% 100%, hsl(var(--accent) / 0.10), transparent 70%);
+    animation: aurora-drift 18s ease-in-out infinite alternate;
+  }
+  @keyframes aurora-drift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to { transform: translate3d(-2%, 2%, 0) scale(1.06); }
+  }
+  .scene-grid {
+    perspective: 600px;
+    perspective-origin: 50% 0%;
+  }
+  .scene-grid > div {
+    position: absolute;
+    inset: -50% -50% 0 -50%;
+    transform: rotateX(62deg);
+    transform-origin: 50% 100%;
+    background-image:
+      linear-gradient(hsl(var(--primary) / 0.14) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--primary) / 0.14) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: linear-gradient(to top, black 10%, transparent 75%);
+    animation: grid-scroll 6s linear infinite;
+  }
+  @keyframes grid-scroll {
+    from { background-position: 0 0; }
+    to { background-position: 0 56px; }
+  }
+
+  /* ---------- 3D tilt cards ---------- */
+  .tilt-card {
+    transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition: transform 0.25s ease-out, box-shadow 0.25s ease-out, border-color 0.25s;
+  }
+  .tilt-card:hover {
+    box-shadow: 0 30px 60px -25px hsl(var(--primary) / 0.45);
+    border-color: hsl(var(--primary) / 0.45);
+  }
+  .tilt-card .tilt-glare {
+    background: radial-gradient(400px circle at var(--gx, 50%) var(--gy, 50%), hsl(var(--primary) / 0.16), transparent 45%);
+  }
+  /* Content sits flat on the card; translateZ here rasterizes text and blurs it. */
+  .tilt-layer {
+    position: relative;
+  }
+
+  .float-y {
+    animation: float-y 6s ease-in-out infinite;
+  }
+  @keyframes float-y {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-8px); }
+  }
+
+  .fade-up {
+    animation: fade-up 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scene-aurora, .scene-grid > div, .float-y, .fade-up { animation: none; }
+    .tilt-card { transform: none !important; }
+  }
 }

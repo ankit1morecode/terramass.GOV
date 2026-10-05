@@ -1,162 +1,182 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Truck, Shield, User, Hash, Car, Lock, Save } from "lucide-react";
+import { Shield, Truck, HardHat, ArrowRight, Mountain, Gauge, Grip, Lock, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SceneBackground } from "@/components/SceneBackground";
+import { TiltCard } from "@/components/TiltCard";
+import { SafeSpeedDemo } from "@/components/SafeSpeedDemo";
+import { adminSession, driverApi } from "@/lib/driver-api";
+import { MAX_BRAKING_DISTANCE } from "@/lib/physics";
+
+const pillars = [
+  { icon: Mountain, label: "Terrain", text: "Live slope & pitch" },
+  { icon: Gauge, label: "Mass", text: "Payload-aware limits" },
+  { icon: Grip, label: "Grip", text: "Surface friction model" },
+];
 
 const Welcome = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
-
-  const [driverName, setDriverName] = useState("");
-  const [vehicleName, setVehicleName] = useState("");
-  const [vehiclePlate, setVehiclePlate] = useState("");
-  const [vehicleType, setVehicleType] = useState("truck");
-  const [password, setPassword] = useState("");
-  const [saving, setSaving] = useState(false);
   const [showAdminDialog, setShowAdminDialog] = useState(false);
   const [adminPassword, setAdminPassword] = useState("");
+  const [signingIn, setSigningIn] = useState(false);
 
-  // ✅ SAVE DRIVER (DIRECT SUPABASE)
-  const handleSave = async () => {
-    if (!driverName.trim()) {
-      toast({ title: "Driver name is required", variant: "destructive" });
-      return;
+  const openAdmin = () => {
+    if (adminSession.isActive()) navigate("/admin");
+    else setShowAdminDialog(true);
+  };
+
+  const handleAdminLogin = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!adminPassword) return;
+    setSigningIn(true);
+    try {
+      await driverApi.adminLogin(adminPassword);
+      setAdminPassword("");
+      navigate("/admin");
+    } catch (err) {
+      toast({ title: err instanceof Error ? err.message : "Sign-in failed", variant: "destructive" });
+    } finally {
+      setSigningIn(false);
     }
-
-    if (!password.trim() || password.length < 4) {
-      toast({ title: "Password must be at least 4 characters", variant: "destructive" });
-      return;
-    }
-
-    setSaving(true);
-
-    const { error } = await supabase.from("drivers").insert({
-      display_name: driverName.trim(),
-      vehicle_name: vehicleName.trim() || "My Vehicle",
-      vehicle_plate: vehiclePlate.trim() || "XX-00-XX-0000",
-      vehicle_type: vehicleType,
-      password: password,
-    });
-
-    if (error) {
-      console.error(error);
-      toast({
-        title: "Failed to save driver",
-        description: error.message,
-        variant: "destructive",
-      });
-    } else {
-      toast({ title: "Driver saved successfully!" });
-
-      // reset form
-      setDriverName("");
-      setVehicleName("");
-      setVehiclePlate("");
-      setVehicleType("truck");
-      setPassword("");
-    }
-
-    setSaving(false);
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-md space-y-8">
-        <div className="text-center space-y-2">
-          <div className="h-14 w-14 rounded-xl bg-primary/20 flex items-center justify-center mx-auto">
-            <Shield className="h-8 w-8 text-primary" />
+    <div className="relative min-h-screen flex flex-col">
+      <SceneBackground />
+
+      <header className="px-6 py-5 flex items-center justify-between max-w-6xl w-full mx-auto">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-lg bg-primary/15 border border-primary/30 flex items-center justify-center">
+            <Shield className="h-5 w-5 text-primary" />
           </div>
-          <h1 className="text-2xl font-bold text-foreground tracking-tight">
+          <span className="font-bold tracking-tight">
             TerraMass<span className="text-primary">.GOV</span>
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Terrain-Mass-Grip Velocity Governance
-          </p>
+          </span>
         </div>
+        <span className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground font-mono">
+          <span className="h-1.5 w-1.5 rounded-full bg-success pulse-dot" />
+          Velocity governance online
+        </span>
+      </header>
 
-        <div className="card-glass rounded-xl p-6 space-y-5">
-          <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider">
-            Add New Driver
-          </h2>
+      <main className="min-h-[calc(100vh-80px)] flex items-center px-6 pb-16">
+        <div className="max-w-6xl w-full mx-auto grid lg:grid-cols-[1.1fr_1fr] gap-12 items-center">
+          <section className="space-y-7 fade-up">
+            <span className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs text-primary font-medium">
+              Terrain · Mass · Grip
+            </span>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05]">
+              Safe speed,
+              <br />
+              <span className="text-gradient-primary">computed live.</span>
+            </h1>
+            <p className="text-muted-foreground max-w-lg text-base sm:text-lg">
+              Real-time velocity governance for heavy fleets — every vehicle's safe speed adapts to the road
+              gradient, its payload and surface grip.
+            </p>
+            <div className="grid grid-cols-3 gap-3 max-w-lg">
+              {pillars.map(({ icon: Icon, label, text }, i) => (
+                <div
+                  key={label}
+                  className="card-glass rounded-xl p-3 fade-up"
+                  style={{ animationDelay: `${150 + i * 90}ms` }}
+                >
+                  <Icon className="h-4 w-4 text-primary mb-2" />
+                  <p className="text-sm font-semibold">{label}</p>
+                  <p className="text-[11px] text-muted-foreground leading-snug">{text}</p>
+                </div>
+              ))}
+            </div>
+          </section>
 
-          <div className="space-y-4">
-            <Input placeholder="Driver Name" value={driverName} onChange={(e) => setDriverName(e.target.value)} />
-            <Input placeholder="Vehicle Name" value={vehicleName} onChange={(e) => setVehicleName(e.target.value)} />
-            <Input placeholder="Vehicle Plate" value={vehiclePlate} onChange={(e) => setVehiclePlate(e.target.value)} />
+          <section className="grid gap-5 fade-up" style={{ animationDelay: "120ms" }}>
+            <TiltCard
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate("/driver")}
+              onKeyDown={(e) => e.key === "Enter" && navigate("/driver")}
+              className="p-6 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="tilt-layer flex items-start gap-4">
+                <div className="h-12 w-12 shrink-0 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center float-y">
+                  <Truck className="h-6 w-6 text-primary" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold">Driver Portal</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Live speedometer, road warnings and messages from dispatch.
+                  </p>
+                </div>
+                <ArrowRight className="h-5 w-5 text-primary mt-1" />
+              </div>
+            </TiltCard>
 
-            <Select value={vehicleType} onValueChange={setVehicleType}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="truck">Truck</SelectItem>
-                <SelectItem value="mining">Mining</SelectItem>
-                <SelectItem value="municipal">Municipal</SelectItem>
-                <SelectItem value="fleet">Fleet</SelectItem>
-              </SelectContent>
-            </Select>
+            <TiltCard
+              role="button"
+              tabIndex={0}
+              onClick={openAdmin}
+              onKeyDown={(e) => e.key === "Enter" && openAdmin()}
+              className="p-6 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <div className="tilt-layer flex items-start gap-4">
+                <div
+                  className="h-12 w-12 shrink-0 rounded-xl bg-accent/15 border border-accent/30 flex items-center justify-center float-y"
+                  style={{ animationDelay: "1.5s" }}
+                >
+                  <HardHat className="h-6 w-6 text-accent" />
+                </div>
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold">Fleet Command</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Fleet telemetry, live map, driver management and alerts.
+                  </p>
+                </div>
+                <Lock className="h-4 w-4 text-muted-foreground mt-1.5" />
+              </div>
+            </TiltCard>
+          </section>
+        </div>
+      </main>
 
-            <Input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+      <section className="px-4 sm:px-6 pb-20">
+        <div className="max-w-6xl mx-auto space-y-6">
+          <div className="max-w-2xl space-y-2">
+            <p className="text-xs font-mono uppercase tracking-widest text-primary">Try it</p>
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">Speed limits for physics, not signboards.</h2>
+            <p className="text-sm text-muted-foreground">
+              Change the slope, grip and payload. The truck needs to stop within {MAX_BRAKING_DISTANCE} m — watch the
+              stopping zone grow and the safe limit move.
+            </p>
           </div>
-
-          <Button className="w-full" onClick={handleSave} disabled={saving}>
-            <Save className="h-4 w-4 mr-2" />
-            {saving ? "Saving..." : "Save Driver"}
-          </Button>
+          <SafeSpeedDemo />
         </div>
+      </section>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Button onClick={() => navigate("/driver")}>Driver Dashboard</Button>
-          <Button variant="secondary" onClick={() => setShowAdminDialog(true)}>
-            Admin Dashboard
-          </Button>
-        </div>
-
-        <Dialog open={showAdminDialog} onOpenChange={setShowAdminDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Admin Access</DialogTitle>
-            </DialogHeader>
-
+      <Dialog open={showAdminDialog} onOpenChange={setShowAdminDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Fleet Command sign-in</DialogTitle>
+            <DialogDescription>Enter the administrator password to continue.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleAdminLogin} className="space-y-3">
             <Input
               type="password"
+              autoComplete="current-password"
+              autoFocus
               placeholder="Admin password"
               value={adminPassword}
               onChange={(e) => setAdminPassword(e.target.value)}
             />
-
-            <Button
-              onClick={() => {
-                if (adminPassword === "terramass@ankit") {
-                  sessionStorage.setItem("admin_verified", "true");
-                  navigate("/admin");
-                } else {
-                  toast({ title: "Incorrect password", variant: "destructive" });
-                }
-              }}
-            >
-              Access Admin Dashboard
+            <Button type="submit" className="w-full" disabled={signingIn || !adminPassword}>
+              {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sign in"}
             </Button>
-          </DialogContent>
-        </Dialog>
-      </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

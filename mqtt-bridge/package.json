@@ -4,7 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "bridge": "node --env-file=.env mqtt-to-supabase.js",
+    "api": "node --env-file=.env api-server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "engines": {
+    "node": ">=20.6"
   },
   "keywords": [],
   "author": "",
@@ -12,6 +17,8 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.100.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
     "mqtt": "^5.15.1"
   }
 }
